@@ -1,0 +1,253 @@
+annotated-transformer-master
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import math, copy, time
+from torch.autograd import Variable
+
+class EncoderDecoder(nn.Module):
+    """
+    A standard Encoder-Decoder architecture. Base for this and many 
+    other models.
+    """
+    def __init__(self, encoder, decoder, src_embed, tgt_embed, generator):
+        super(EncoderDecoder, self).__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+        self.src_embed = src_embed
+        self.tgt_embed = tgt_embed
+        self.generator = generator
+        
+    def forward(self, src, tgt, src_mask, tgt_mask):
+        "Take in and process masked src and target sequences."
+        return self.decode(self.encode(src, src_mask), src_mask,
+                            tgt, tgt_mask)
+    
+    def encode(self, src, src_mask):
+	# encoder: (x1,x2,...,xn) ->(map into) (z1,z2,...,zn) 将序列映射为序列表示
+        return self.encoder(self.src_embed(src), src_mask)
+    
+    def decode(self, memory, src_mask, tgt, tgt_mask):
+	# decoder: (z1,z2,...,zn) ->(map into) (y1,y2,...,yn) 将序列表示映射为输出
+        return self.decoder(self.tgt_embed(tgt), memory, src_mask, tgt_mask)
+    # encoder 和 decoder都是auto-regressive即自回归模型 t+1时刻输出需要的特征(input)包含t时刻的输出作为输入
+
+class Generator(nn.Module):
+    "Define standard linear + softmax generation step."
+    def __init__(self, d_model, vocab):
+        super(Generator, self).__init__()
+        self.proj = nn.Linear(d_model, vocab) # torch.nn.Linear(in_features,out_features) 输出维度为vocab,即预测vocab中的某个词
+	# torch.nn.Linear依赖torch.nn.functional.linear(input,weight,bias) y = xA^T + b 
+	# x:N * ? * in_features  A:out_features * in_features -> y:N * ? * out_features
+	# 所以self.proj的形式为N * ? * out_features
+
+    def forward(self, x):
+        return F.log_softmax(self.proj(x), dim=-1) # 这里input是self.proj(x)
+	# 关于softmax中dim的解释,假如input是1*m(二维向量,只不过第一维坍缩成1) 那么dim=0时返回按照=1的维进行计算,所以结果是[1,...]m个1 dim=1时按照=m的维计算,所以结果是[a,b,c,...] a+b+c+...=1   dim=-1 那么此处倒数第一维就是=m的那维
+        # n*m和1*m是一样的
+	# 假如input是个一维向量即[a,b,c] 此时只有一个维度所以dim只能取0 or -1,就是按照a,b,c取softmax
+
+def clones(module, N): # 用来堆叠layers
+    "Produce N identical layers." 将module深拷贝N份
+    return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
+    # nn.Sequential和nn.ModuleList对比
+    # 用法例子1 nn.Sequential(nn.Conv2d(3,3,3),nn.BatchNorm2d(3),nn.ReLU()) 必须要保证一个块(Module)的输出shape和下一个块(Module)的输入shape匹配.和nn.Module是一样的.
+    # 用法例子2 net1 = nn.Sequential()  net1.add_module("conv",nn.Conv2d(3,3,3)) net1.add_module("batchnorm",nn.BatchNorm2d(3))
+    # 用法例子3 net3 = nn.Sequential(OrderedDict([("conv",nn.Conv2d(3,3,3)),...]))
+    # 可以通过net1.conv直接拿到Module对象. net.模块名.没命名时默认为序号
+    # nn.ModuleList没有实现forward方法(链接前后两个Module),所以传入的是list,而且不需要保证shape.用来存储任意数量的nn.Module.类似于list,有extend和append.直接print可以拿到ModuleList里各个Module的参数(这个特性是python list不具有的)
+    # 重写nn.Module的def forward(self,args)时,传入的参数args即Module(args). 先实例化比如 layer = Module(para) 再传播y = layer(x) 
+
+
+Encoder-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+class Encoder(nn.Module): # 用来将EncoderLayer进行堆叠
+    "Core encoder is a stack of N layers"
+    def __init__(self, layer, N):
+        super(Encoder, self).__init__()
+        self.layers = clones(layer, N) # 将layer深拷贝N次(似乎参数并不共享)
+        self.norm = LayerNorm(layer.size) # ？
+        
+    def forward(self, x, mask): # mask只有一个
+        "Pass the input (and mask) through each layer in turn."
+        for layer in self.layers: # 遍历self.layers中的layer.此处所有的layer都是一样的
+            x = layer(x, mask) # 输入x和mask作为Input传入,返回的x作为下一个输入
+        return self.norm(x) # a_2*z_score(x) + b_2 
+    
+class LayerNorm(nn.Module):
+    "Construct a layernorm module (See citation for details)."
+    def __init__(self, features, eps=1e-6): # features就是
+        super(LayerNorm, self).__init__() # 继承父类nn.Module的__init__() py3可以直接写成super().__init__()
+        self.a_2 = nn.Parameter(torch.ones(features))
+        self.b_2 = nn.Parameter(torch.zeros(features))
+        self.eps = eps # epsilon 防止除数为0
+	# nn.Parameter实现类别转换,将不可训练的Tensor类型转成可以训练的类型Parameter
+
+    def forward(self, x):
+        mean = x.mean(-1, keepdim=True) # keepdim=True即保持维度,原本是m*n的求mean后不是一个scalar而是1*1的ndarray or 其他张量形式. -1指的是对最后一维求mean 比如m*n -> m*1
+        std = x.std(-1, keepdim=True) # 同理
+        return self.a_2 * (x - mean) / (std + self.eps) + self.b_2  # a_2*z_score(x) + b_2  a_2和b_2居然shape相同？
+
+class SublayerConnection(nn.Module):
+    """
+    A residual connection followed by a layer norm.
+    Note for code simplicity the norm is first as opposed to last.
+    """
+    def __init__(self, size, dropout):
+        super(SublayerConnection, self).__init__()
+        self.norm = LayerNorm(size) # LayerNorm中的参数size
+        self.dropout = nn.Dropout(dropout) # dropout参数
+
+    def forward(self, x, sublayer): # 向前传播时需要x和sublayer
+        "Apply residual connection to any sublayer with the same size."
+        return x + self.dropout(sublayer(self.norm(x))) # x + dropout(sublayer(a_2*z_score(x) + b_2))  residual connection残差连接(在原值上拟合偏差更容易)
+
+class EncoderLayer(nn.Module):
+    "Encoder is made up of self-attn and feed forward (defined below)"
+    def __init__(self, size, self_attn, feed_forward, dropout):
+        super(EncoderLayer, self).__init__()
+        self.self_attn = self_attn  # attention module
+        self.feed_forward = feed_forward  # feed_forward module
+        self.sublayer = clones(SublayerConnection(size, dropout), 2) # SublayerConnection * 2 
+        self.size = size
+
+    def forward(self, x, mask):
+        "Follow Figure 1 (left) for connections."
+	# sublayer里面只有两个元素
+        x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, mask)) # x + dropout(self.self_attn(x, x, x, mask)(a_2*z_score(x) + b_2))
+        return self.sublayer[1](x, self.feed_forward) # x + dropout(feed_forward(a_2*z_score(x) + b_2))
+
+
+decoder-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+class Decoder(nn.Module): # 用来将DecoderLayer进行堆叠
+    "Generic N layer decoder with masking."
+    def __init__(self, layer, N):
+        super(Decoder, self).__init__()
+        self.layers = clones(layer, N) # layer * N份
+        self.norm = LayerNorm(layer.size)
+        
+    def forward(self, x, memory, src_mask, tgt_mask):
+        for layer in self.layers: # 在堆叠的layers上进行前馈
+            x = layer(x, memory, src_mask, tgt_mask) # layer->layer->... memory,src_mask,tgt_mask指的是？
+        return self.norm(x) # 最后结果进行norm
+
+class DecoderLayer(nn.Module):
+    "Decoder is made of self-attn, src-attn, and feed forward (defined below)"
+    def __init__(self, size, self_attn, src_attn, feed_forward, dropout):
+        super(DecoderLayer, self).__init__()
+        self.size = size
+        self.self_attn = self_attn # attention module
+        self.src_attn = src_attn # attention module
+        self.feed_forward = feed_forward # feed_forward module
+        self.sublayer = clones(SublayerConnection(size, dropout), 3) # SublayerConnection * 3 
+ 
+    def forward(self, x, memory, src_mask, tgt_mask):
+        "Follow Figure 1 (right) for connections."
+        m = memory
+        x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, tgt_mask))  # x + dropout(self.self_attn(x, x, x, mask)(a_2*z_score(x) + b_2))
+        x = self.sublayer[1](x, lambda x: self.src_attn(x, m, m, src_mask)) # x + dropout(self.src_attn(x, x, x, mask)(a_2*z_score(x) + b_2)) 比EncoderLayer多出来的部分
+        return self.sublayer[2](x, self.feed_forward) #  x + dropout(feed_forward(a_2*z_score(x) + b_2))
+
+def subsequent_mask(size):
+    "Mask out subsequent positions."
+    attn_shape = (1, size, size)
+    subsequent_mask = np.triu(np.ones(attn_shape), k=1).astype('uint8') 
+    # np.triu,当k=0时,默认为左上方至右下方的斜对称轴.假如不是方阵,那么此时斜轴有两条(最靠近对称轴的那两个),k=0默认的是下面的那个.
+    # 即k=1时,第一行左起第一个赋值为0,第二行左起第一第二个皆赋值为0,以此类推.
+    return torch.from_numpy(subsequent_mask) == 0 # torch.from_numpy将ndarray转化成tensor. ==0取补集,即为0的位置返回的是True，其他位置返回的是False
+
+
+Attention-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+   
+attention函数形式 attn(queries q:vector, keys:vector, values:vector) ---> output: a weighted sum of the values. weights=weigths(query,key) query和key有某种对应关系
+
+transformer使用的是Scaled Dot-Product Attention. 设queries和keys的维数是d_k. values的维数是d_v. m个queries堆叠构成Q:m*d_k  n个keys堆叠成K:n*d_k(后面可以看到是l*d_k)  l个values堆叠成V:l*d_v
+Attention(Q,K,V) = softmax(Q*K.T/sqrt(d_k))*V
+
+def attention(query, key, value, mask=None, dropout=None):
+    "Compute 'Scaled Dot Product Attention'"
+    d_k = query.size(-1) # query:?*d_k
+    scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_k)  # Q*K.T/sqrt(d_k) 返回 m*n
+    # 注意numpy的transpose和torch的transpose(此处所用)不同.numpy.transpose(a1,a2)是第i个维度调整到第ai个维度上.torch.transpose(a,b)是交换a,b两个维度,即对维度a,b作转置
+    if mask is not None:
+        scores = scores.masked_fill(mask == 0, -1e9) # pytorch.masked_fill 在mask==0处用-1e9(负无穷小)填充,在mask!=0处维持原值
+    p_attn = F.softmax(scores, dim = -1) # 最后一个维度作softmax.softmax只负责将最后的值计算exp然后做归一.这个值可由前面一个向量做仿射变换拿到. 返回m*n (对计算得到的权重归一化)
+    if dropout is not None:
+        p_attn = dropout(p_attn)
+    return torch.matmul(p_attn, value), p_attn # m*n * l*d_v 说明l==n
+    # 注意返回为 m*d_v,m*l 
+    
+    # query[i]和key[j]作内积(决定了value的行向量[j]的加权系数(key有l个,value的行向量也有l个)),作为value[j][k]的权重,再对value[j][k]的j求和,得到res[i][k](每一行为value的行(向量)加权得到). l行value对应l个key
+    # 所以每行query(和key)都有一个value的行向量的加权结果.(注意此时行value都有一个key,所以本质上还是query决定的)
+    # 还有一种additive attention但是此处的dot product attention通过实现高度优化的矩阵乘法使得这个函数更快空间占用上更有效.
+    # d_k是queries和keys的嵌入维度.设想d_k为1时,此时对于values有m种加权可能,但是都是由queries这m*1个数决定的.参数空间的自由度是比较低的
+    # 当d_k很小时,additive attention和dot product attention是相似的,但是当d_k比较大时,如果不对dot product atten作scaling(/ math.sqrt(d_k)),那么additive还是更快,因为当d_k很大时,dot-products(如果不作scaling)的模就会很大,
+这使得softmax的梯度很低.(举例来说就是q,k都是iid.N维正态(0,1)那么q*k的均值为0,方差为d_k，所以需要scaling)
+
+# A_i表示下角标i  A~i表示上角标i (W_i~Q)表示下角标为i上角标为Q
+# MultiHead(Q,K,V)=Concat(head1,...headh)*W~O      where headi = Attention(Q*(W_i~Q),K*(W_i~K),V*(W_i~V))   Attention,Q:m*d_k ,K:l*d_k ,V:l*d_v 是前面已经定义好的
+# W_i~Q:d_model*d_k   W_i~K:d_model*d_k   W_i~V:d_model*d_v   W~O:(h*d_v)*d_model ()内的表示在一维,一个attention返回的是m*d_v现在是将h个m*d_v作Concat即m*(h*d_v),可见这个Concat是按照列做的.
+# 参数设置: h=8, d_k = d_v = d_model/h = 64
+# Q*(W_i~Q) 应该是 m*d_model. K*(W_i~K) l*d_model. V*(W_i~V) l*d_model W_i~Q,W_i~K,W_i~V又对Q,K,V做了一次加权(仿射变换).最后MultiHead结果用W~O做了一次仿射变换
+# d_model>d_k,d_v 即对Q,K,V的仿射变换(对新基作投影)是一个嵌入,变换后的维度增加了h倍  m*d_k->m*d_model     最终结果multihead由 m*(h*d_v)->m*d_model,维数不变
+
+class MultiHeadedAttention(nn.Module):
+    def __init__(self, h, d_model, dropout=0.1):
+        "Take in model size and number of heads."
+        super(MultiHeadedAttention, self).__init__()
+        assert d_model % h == 0
+        # We assume d_v always equals d_k
+        self.d_k = d_model // h   # 按照参数设置
+        self.h = h
+        self.linears = clones(nn.Linear(d_model, d_model), 4)  # d_model->d_model的线性变换,deepcopy4份 
+        self.attn = None
+        self.dropout = nn.Dropout(p=dropout)
+        
+    def forward(self, query, key, value, mask=None):
+        "Implements Figure 2"
+        if mask is not None:
+            # Same mask applied to all h heads.
+            mask = mask.unsqueeze(1) # (m,n)->(m,1,n) unsqueeze(idx)增加一个维度.idx为几就在哪个维度添加
+        nbatches = query.size(0) # query是一个矩阵
+        
+        # 1) Do all the linear projections in batch from d_model => h x d_k 
+        query, key, value = \
+            [l(x).view(nbatches, -1, self.h, self.d_k).transpose(1, 2) # view即reshape,
+             for l, x in zip(self.linears, (query, key, value))] # zip(A,B)返回的是A,B(list,tuple其他迭代器亦可)中元素一一对应的二元组,A,B长度不一致时,以最短的那个为准
+	     # 此处A有4个linears  B有三个 query Q m*d_k,key K l*d_k,value V l*d_v. d_model = d_k * h
+             # 进行了优化,直接对Q,K,V三个矩阵进行Multihead Concat. 那么 query m*d_k->m*(d_k*h)即m*d_model
+             # reshape: Q m*(d_k*h) -> m,1,h,d_k  此处似乎暗示了 m=l 即query和key一样多 或者 key的数目可以整除query的数目
+             # transpose: m,1,h,d_k -> m,h,1,d_k
+        
+        # 2) Apply attention on all the projected vectors in batch.
+        x, self.attn = attention(query, key, value, mask=mask, 
+                                 dropout=self.dropout) # 注意torch.matmul(A,B)按A,B的最后两维计算.query,key,value的最后两维为 1,d_k  l/m,d_k  l/m,d_k  
+        
+        # 3) "Concat" using a view and apply a final linear.
+        x = x.transpose(1, 2).contiguous() \
+             .view(nbatches, -1, self.h * self.d_k) 
+        return self.linears[-1](x) # 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
