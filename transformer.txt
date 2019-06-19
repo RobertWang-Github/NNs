@@ -224,6 +224,7 @@ class MultiHeadedAttention(nn.Module):
         # 2) Apply attention on all the projected vectors in batch.
         x, self.attn = attention(query, key, value, mask=mask, 
                                  dropout=self.dropout) # 注意torch.matmul(A,B)按A,B的最后两维计算.query,key,value的最后两维为 1,d_k  l/m,d_k  l/m,d_k  
+	# 
         
         # 3) "Concat" using a view and apply a final linear.
         x = x.transpose(1, 2).contiguous() \
