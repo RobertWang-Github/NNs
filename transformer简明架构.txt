@@ -1,0 +1,109 @@
+
+transformer简明架构
+
+Encoder:传入参数(x,mask)
+
+	(x,mask)  x为输入特征,mask用于遮掩,在不同层1->N都是同一个mask
+	   ↓
+	Layer1
+           ↓
+	Layer2
+	   ↓
+	   ...
+	   ↓ 
+	LayerN
+	   ↓ 
+	LayerNorm   a_2*z_score(输入)+b_2
+	   ↓
+           out
+
+
+SublayerConnection:传入参数(x,sublayer)
+
+(x)	  (x)
+ ↓	   ↓
+ ↓	LayerNorm
+ ↓        ↓
+ ↓	sublayer
+ ↓        ↓
+ ↓	dropout
+ ↓	   ↓
+ A    +     B   residual connect 
+      ↓
+      out
+    
+
+EncoderLayer:传入参数(x,mask)
+
+		  (x)                                    
+		  ↓					   
+	SublayerConnection(x,attention(x,x,x,mask))              
+		  ↓                                      		
+	SublayerConnection(x,feed_forward)
+		  ↓
+                  out
+
+
+Decoder:传入参数(x,memory,src_mask,tgt_mask)
+
+	(x,memory,src_mask,tgt_mask)  x为输入特征,mask用于遮掩,在不同层1->N都是同一个mask
+	   ↓
+	Layer1
+           ↓
+	Layer2
+	   ↓
+	   ...
+	   ↓ 
+	LayerN
+	   ↓ 
+	LayerNorm   a_2*z_score(输入)+b_2
+	   ↓
+           out
+
+DecoderLayer:传入参数(x,memory,src_mask,tgt_mask):
+	
+		  (x)                                    
+		  ↓					   
+	SublayerConnection(x,attention(x,x,x,tgt_mask))              
+		  ↓                                      		
+	SublayerConnection(x,attention(x,m,m,src_mask))
+		  ↓
+	SublayerConnection(x,feed_forward)
+		  ↓			
+                  out
+
+attention:传入参数(query,key,value,mask=None,dropout=None)
+	# query:?*m*d_k   key:?*n*d_k  value:?*n*d_v
+	scores = query * key.T / sqrt(d_k) # scores:m*n
+	scores中将mask对应为0的地方全部置无穷小.
+	scores->根据最后一列计算softmax,返回m*n->送入dropout->拿到最终权重p_attn
+	return p_attn*value(依据权重将value的行向量加权),p_attn    m*d_v,m*n
+
+
+MultiHeadedAttention:传入参数(query,key,value,mask=None)
+	# 注意d_v=d_k 此处的query,key,value按照dim=-1 concat了h份
+	所有的head都采用同一个mask
+	
+	query(?*m*d_model=?*m*(d_k*h)),key(?*n*d_model=?*m*(d_k*h)),value(?*m*(d_v*h))
+	     ↓
+	3个nn.linear(线性变换权重矩阵为d_model*d_model),d_model=d_k*h
+	     ↓
+	query,key,value
+	     ↓reshape
+	query(?,?,h,d_k),key(?,?,h,d_k),value(?,?,h,d_k)
+	     ↓transpose
+	query(?,h,?,d_k),key(?,h,?,d_k),value(?,h,?,d_k)
+	     ↓
+	attention
+	     ↓
+	x(即加权后的value)
+	     ↓
+	self.linear
+	     ↓
+	    out
+
+
+
+
+
+
