@@ -201,7 +201,9 @@ class MultiHeadedAttention(nn.Module):
         # We assume d_v always equals d_k
         self.d_k = d_model // h   # 按照参数设置
         self.h = h
-        self.linears = clones(nn.Linear(d_model, d_model), 4)  # d_model->d_model的线性变换,deepcopy4份 
+        self.linears = clones(nn.Linear(d_model, d_model), 4)  # d_model->d_model的线性变换,deepcopy4份
+	# 原本nn.linear应该是d_model*d_k记作W_i^Q, Q为?*d_model即Q*W_i^Q返回?*d_k, 但是将h个W_i^Q按照最后一维concat,就得到d_model*d_model. 在维度上进行切片分开计算就是multihead的思想,因为放射变换是可以这么做的.
+	# head_i=Q*W_i^Q 而这样的W_i^Q有h个,就有h个head
         self.attn = None
         self.dropout = nn.Dropout(p=dropout)
         
@@ -230,6 +232,8 @@ class MultiHeadedAttention(nn.Module):
         x = x.transpose(1, 2).contiguous() \
              .view(nbatches, -1, self.h * self.d_k) 
         return self.linears[-1](x) # 
+	
+基本组件到此结束-------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
 
