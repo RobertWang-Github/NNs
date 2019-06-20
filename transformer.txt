@@ -254,9 +254,32 @@ class Embeddings(nn.Module):
     def forward(self, x):
         return self.lut(x) * math.sqrt(self.d_model) # Embedding vector of x * sqrt(d_model)  为什么后面乘一个sqrt?  
 # 因为transformer里面不包含任何递归和卷积,如果想利用序列特征,就要在序列中引入(每个元素,比如词)相对或者绝对的位置信息.所以transformer在encoder和decoder堆叠的底部加入了positional encodings(位置编码).位置编码和嵌入向量embedding有相同的维度d_model,所以embedding和positional encodings可以直接相加.(位置编码的形式有多种选择,后续再行补充)  
-本文中选择的位置编码形式为:  
-&emsp;&emsp;<a href="https://www.codecogs.com/eqnedit.php?latex=PE_(pos,2i)=sin(pos/10000^{2i/d_{model}})\\&space;PE_(pos,2i)=cos(pos/10000^{2i/d_{model}})" target="_blank"><img src="https://latex.codecogs.com/gif.latex?PE_(pos,2i)=sin(pos/10000^{2i/d_{model}})\\&space;PE_(pos,2i)=cos(pos/10000^{2i/d_{model}})" title="PE_(pos,2i)=sin(pos/10000^{2i/d_{model}})\\ PE_(pos,2i)=cos(pos/10000^{2i/d_{model}})" /></a>  
+本文中选择的位置编码PE(positional encoding)形式为:  
+		PE_(pos,2i)=sin(pos/10000^(2i/d_model)
+		PE_(pos,2i+1)=cos(pos/10000^(2i/d_model)
+pos是位置(索引),i是维度(索引).波长(ω/2π)根据i不同从2π-10000*2π.选择该函数是因为PE_{pos+k}显然可以由PE_{pos}线性表出(比起直接用pos更有规律,而且positional encoding的不同维度有不同的正余弦频率,这似乎蕴含了傅里叶变换的想法).
 
+class PositionalEncoding(nn.Module): # PE仍然是一个nn模块
+    "Implement the PE function."
+    def __init__(self, d_model, dropout, max_len=5000):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+        
+        # Compute the positional encodings once in log space.
+        pe = torch.zeros(max_len, d_model) # max_len*d_model
+        position = torch.arange(0, max_len).unsqueeze(1) # 位置 max_len*1
+        div_term = torch.exp(torch.arange(0, d_model, 2) *  # 2i  i从0-d_model
+                             -(math.log(10000.0) / d_model)) # div_term = 1/10000^(2i/d_model)
+        pe[:, 0::2] = torch.sin(position * div_term) # PE_(pos,2i) 每一行代表一个pos的position encoding(对于文本任务,这个pos可能就是一个词),PE_(pos,2i)嵌入偶数维,PE_(pos,2i+1)置入奇数维,如此每一行就是一个和embedding等长的position encoding向量,长度为d_model,所以前面的value就是pos的embedding.pe的行数表示有多少个pos(有时就是句子的长度).
+        pe[:, 1::2] = torch.cos(position * div_term) # PE_(pos,2i+1)
+        pe = pe.unsqueeze(0) # max_len*2 -> 1*max_len*d_model
+        self.register_buffer('pe', pe) # 将position注册成buffer,即执行optim.step时,pe不会改变,而模型参数此时是会发生改变的.
+        
+    def forward(self, x): # x应该是一个句子
+        x = x + Variable(self.pe[:, :x.size(1)], 
+                         requires_grad=False) # 将x与和x等长的position encoding矩阵直接相加.
+        return self.dropout(x) # 将x传入dropout
+	# 使用学习到的positional embeddings(文中提及,但是尚未研究)和此处的正余弦编码的结果很接近.但是选择正余弦似乎是因为,这个方式可以允许序列更长(正余弦的周期性).
 
 
 
