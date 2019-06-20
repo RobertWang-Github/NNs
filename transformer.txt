@@ -281,12 +281,73 @@ class PositionalEncoding(nn.Module): # PE仍然是一个nn模块
         return self.dropout(x) # 将x传入dropout
 	# 使用学习到的positional embeddings(文中提及,但是尚未研究)和此处的正余弦编码的结果很接近.但是选择正余弦似乎是因为,这个方式可以允许序列更长(正余弦的周期性).
 
+def make_model(src_vocab, tgt_vocab, N=6, 
+               d_model=512, d_ff=2048, h=8, dropout=0.1):
+    "Helper: Construct a model from hyperparameters."
+    c = copy.deepcopy # 深拷贝
+    attn = MultiHeadedAttention(h, d_model) # attention h为head数目 d_model为embedding长度
+    ff = PositionwiseFeedForward(d_model, d_ff, dropout) # d_model--Linear+relu+dropout-->d_ff--Linear-->d_model---->out
+    position = PositionalEncoding(d_model, dropout) # pe函数
+    model = EncoderDecoder(
+        Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N), # EncoderLayer1->EncoderLayer2->...N个->LayerNorm->传出一个embedding序列
+        Decoder(DecoderLayer(d_model, c(attn), c(attn), # DecoderLayer1->DecoderLayer2->...N个->LayerNorm->传出结果
+                             c(ff), dropout), N),
+        nn.Sequential(Embeddings(d_model, src_vocab), c(position)), # src->Src_Embedding + PositionalEncoding->encoder->tgt
+        nn.Sequential(Embeddings(d_model, tgt_vocab), c(position)), # tgt->Tgt_Embedding + PositionalEncoding->output
+	# 加了两次PositionalEncoding
+        Generator(d_model, tgt_vocab)) # 将embedding做一次仿射变换送入softmax
+    
+    # This was important from their code. 
+    # Initialize parameters with Glorot / fan_avg.
+    for p in model.parameters():
+        if p.dim() > 1:
+            nn.init.xavier_uniform(p) # 对维数>1的采用xavier_uniform
+    return model
 
+# Batches and Masking
+class Batch: # 便于向batch中加入mask,同时该mask是不变的
+    "Object for holding a batch of data with mask during training."
+    def __init__(self, src, trg=None, pad=0):
+        self.src = src
+        self.src_mask = (src != pad).unsqueeze(-2) # src_mask 0(pad处),1(未pad处)序列,同时在src的倒数第二维增加一维
+        if trg is not None:
+            self.trg = trg[:, :-1] # 不要最后一列
+            self.trg_y = trg[:, 1:] # 不要第一列(此处应该是只要最后一列吧)
+            self.trg_mask = \
+                self.make_std_mask(self.trg, pad)
+            self.ntokens = (self.trg_y != pad).data.sum()
+    
+    @staticmethod
+    def make_std_mask(tgt, pad):
+        "Create a mask to hide padding and future words."
+        tgt_mask = (tgt != pad).unsqueeze(-2) # tgt_mask 同src_mask
+        tgt_mask = tgt_mask & Variable(
+            subsequent_mask(tgt.size(-1)).type_as(tgt_mask.data)) # tgt最后一维就是句子,盖住的就是词,类型转换成和tgt_mask.data一致
+	    # subsequent_mask(size) 1*size*size,按照上三角的形式拿到mask即第一行除了第一个元素盖住后面所有,第二行除了前两个元素盖住所有,以此类推.
+	    # tgt本身元素等于0与否 和 mask取且运算. 即mask来源有两个,一个是本身就可能值为0,另一个是triu生成的mask
+        return tgt_mask # 返回最终的mask
 
-
-
-
-
+# Training Loop
+def run_epoch(data_iter, model, loss_compute):
+    "Standard Training and Logging Function"
+    start = time.time() # 开始时间
+    total_tokens = 0
+    total_loss = 0
+    tokens = 0
+    for i, batch in enumerate(data_iter): # 遍历data_iter中的所有batch
+        out = model.forward(batch.src, batch.trg, 
+                            batch.src_mask, batch.trg_mask)
+        loss = loss_compute(out, batch.trg_y, batch.ntokens)
+        total_loss += loss
+        total_tokens += batch.ntokens
+        tokens += batch.ntokens
+        if i % 50 == 1:
+            elapsed = time.time() - start
+            print("Epoch Step: %d Loss: %f Tokens per Sec: %f" %
+                    (i, loss / batch.ntokens, tokens / elapsed))
+            start = time.time()
+            tokens = 0
+    return total_loss / total_tokens
 
 
 
