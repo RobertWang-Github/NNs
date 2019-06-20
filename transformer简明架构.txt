@@ -1,6 +1,15 @@
 
 transformer简明架构
 
+EncoderDecoder的一般结构:
+	Encode:(x1,x2,...,xn)->(z1,z2,...,zn)
+	
+	Decode:(z1,z2,...,zn)->(y1,y2,...,yn)
+	
+	forward:
+		decode(encode(src,src_mask),src_mask,tgt,tgt_mask)
+
+
 Encoder:传入参数(x,mask)
 
 	(x,mask)  x为输入特征,mask用于遮掩,在不同层1->N都是同一个mask
