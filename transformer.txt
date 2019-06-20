@@ -253,7 +253,10 @@ class Embeddings(nn.Module):
 
     def forward(self, x):
         return self.lut(x) * math.sqrt(self.d_model) # Embedding vector of x * sqrt(d_model)  为什么后面乘一个sqrt?  
-	
+# 因为transformer里面不包含任何递归和卷积,如果想利用序列特征,就要在序列中引入(每个元素,比如词)相对或者绝对的位置信息.所以transformer在encoder和decoder堆叠的底部加入了positional encodings(位置编码).位置编码和嵌入向量embedding有相同的维度d_model,所以embedding和positional encodings可以直接相加.(位置编码的形式有多种选择,后续再行补充)  
+本文中选择的位置编码形式为:  
+&emsp;&emsp;<a href="https://www.codecogs.com/eqnedit.php?latex=PE_(pos,2i)=sin(pos/10000^{2i/d_{model}})\\&space;PE_(pos,2i)=cos(pos/10000^{2i/d_{model}})" target="_blank"><img src="https://latex.codecogs.com/gif.latex?PE_(pos,2i)=sin(pos/10000^{2i/d_{model}})\\&space;PE_(pos,2i)=cos(pos/10000^{2i/d_{model}})" title="PE_(pos,2i)=sin(pos/10000^{2i/d_{model}})\\ PE_(pos,2i)=cos(pos/10000^{2i/d_{model}})" /></a>  
+
 
 
 
