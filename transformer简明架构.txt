@@ -116,25 +116,50 @@ MultiHeadedAttention:传入参数(query,key,value,mask=None)
 Model:(x)用来表示结果传递
 
 	   	Encoder                                             Decoder
-		 (x)   ?*vocab                                       (x)   ?*vocab 
+		 (x)                                                 (x)   batch_size*pos_num*vocab_size  最后一维是一个one-hot
 		  ↓                                                   ↓    
      Embedding(x) + PositionalEncoding(x)                Embedding(x) + PositionalEncoding
 		  ↓                                                   ↓    
-		 (x)   ?*d_model                                     (x)   ?*d_model
+		 (x)                                                 (x)   batch_size*pos_num*d_model  最后一维是embedding vector
 		  ↓                                                   ↓
-	    (x)	       (x)                                     (x)	     (x)
- 	     ↓	        ↓                                       ↓             ↓
-             ↓	    LayerNorm                                   ↓          LayerNorm (对最后一维求zscore,再做一次仿射变换)
-             ↓          ↓                                       ↓             ↓
-	     ↓         (x)                                      ↓            (x)
-	     ↓          ↓                                       ↓             ↓
-             ↓	MultiHead-attention                             ↓     MultiHead-attention
-             ↓          ↓                                       ↓             ↓
-	     ↓         (x)                                      ↓            (x)
-	     ↓          ↓                                       ↓             ↓
-             ↓	     dropout                                    ↓           dropout
-             ↓	        ↓                                       ↓             ↓
-             A    +     B   residual connect                    A     +       B
+	    (x)	       (x)                                    (x) 	     (x)
+ 	     ↓	        ↓                                      ↓              ↓
+             ↓	    LayerNorm                                  ↓           LayerNorm (对最后一维求zscore,再做一次仿射变换)
+             ↓          ↓                                      ↓             ↓
+	     ↓         (x)                                     ↓            (x) batch_size*pos_num*d_model
+	     ↓          ↓                                      ↓             ↓
+             ↓ |-MultiHead-attention-|                         ↓|-----MultiHead-attention-----| d_k = d_model // h(MultiHead)
+	     ↓ |       ...           |                         ↓|    query=x,key=x,value=x    | batch_size*pos_num*d_model
+	     ↓ |       ...           |                         ↓|      ↓     ↓      ↓         |
+	     ↓ |       ...           |		               ↓|    Linear  Linear Linear    | Linear(d_model->d_model)
+             ↓ |       ...           |		               ↓|      ↓     ↓      ↓         |
+	     ↓ |       ...           |			       ↓|   (query)  (key)  (value)   | batch_size*pos_num*d_model
+	     ↓ |       ...           |                         ↓|      ↓     ↓      ↓         |
+	     ↓ |       ...           |                         ↓|    reshape + transpose      | 通过reshape对embedding进行切分
+	     ↓ |       ...           |			       ↓|      ↓     ↓      ↓         |
+	     ↓ |       ...           |			       ↓|   (query)  (key)  (value)   | batch_size*h*pos_num*d_k
+	     ↓ |       ...           |			       ↓|      ↓     ↓      ↓         | query*key.T/sqrt(d_k) 防止维数膨胀
+	     ↓ |       ...           |			       ↓|       scores      ↓         | scores由embed和其他embed的Dot决定
+	     ↓ |       ...           |			       ↓|          ↓        ↓       |scores:batch_size*h*pos_num*pos_num
+	     ↓ |       ...           |			       ↓|        mask       ↓         | 按上三角进行mask遮掩
+	     ↓ |       ...           |			       ↓|          ↓        ↓         |
+	     ↓ |       ...           |			       ↓|       softmax     ↓         | 将scores以softmax归一化,拿到概率值
+	     ↓ |       ...           |			       ↓|          ↓        ↓         | 
+	     ↓ |       ...           |			       ↓|        p_attn     ↓       |p_attn:batch_size*h*pos_num*pos_num
+	     ↓ |       ...           |			       ↓|               ↓matmul       | (p_attn*x)按照概率值将x的行向量相加
+	     ↓ |       ...           |			       ↓|              (x)            | x: batch_size*h*pos_num*d_k
+	     ↓ |       ...           |			       ↓|               ↓             | 
+	     ↓ |       ...           |			       ↓|     transpose + reshape     | 
+	     ↓ |       ...           |			       ↓|               ↓             |
+	     ↓ |       ...           |			       ↓|              (x)            | batch_size*pos_num*d_model
+	     ↓ |       ...           |			       ↓|               ↓             |
+	     ↓ |       ...           |			       ↓|             Linear          | x = Ax + b	                
+             ↓          ↓                                      ↓|               ↓             |
+	     ↓         (x)                                     ↓|              (x)            |
+	     ↓          ↓                                      ↓|               ↓             |
+             ↓	     dropout                                   ↓|             dropout         |
+             ↓	        ↓                                      ↓|               ↓             |
+             A    +     B   residual connect                   A      +         B
                   ↓                                                   ↓
                  (x)                                                  ↓
 	          ↓                                                   ↓
@@ -161,10 +186,10 @@ Model:(x)用来表示结果传递
                   ↓                                          LayerNorm         ↓
 		  ↓                                              ↓	       ↓
 		  ↓                                             (x)	       ↓
-                  ↓                                              ↓             ↓
-             	  ↓------------------------------------->MultiHead-attention   ↓                                       
+                 (m)                                             ↓             ↓
+             	  ↓------------------------------------->MultiHead-attention   ↓   query=x,key=m,value=m
                                                                  ↓             ↓
-								 (x)	       ↓
+								(x)	       ↓
 								 ↓             ↓
 	                                                      dropout          ↓
                                                                  ↓             ↓	        
@@ -176,7 +201,7 @@ Model:(x)用来表示结果传递
  	                                                         ↓	       ↓
                                                                  ↓	    LayerNorm
                                                                  ↓             ↓
-                                                                 ↓	    PositionwiseFeedForward
+                                                                 ↓	  PositionwiseFeedForward(Linear->Relu->dropout->Linear)
                                                                  ↓             ↓
                                                                  ↓	     dropout
                                                                  ↓	       ↓
