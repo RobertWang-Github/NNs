@@ -195,7 +195,7 @@ def attention(query, key, value, mask=None, dropout=None):
 # Q*(W_i~Q) 应该是 m*d_model. K*(W_i~K) l*d_model. V*(W_i~V) l*d_model W_i~Q,W_i~K,W_i~V又对Q,K,V做了一次加权(仿射变换).最后MultiHead结果用W~O做了一次仿射变换
 # d_model>d_k,d_v 即对Q,K,V的仿射变换(对新基作投影)是一个嵌入,变换后的维度增加了h倍  m*d_k->m*d_model     最终结果multihead由 m*(h*d_v)->m*d_model,维数不变
 
-class MultiHeadedAttention(nn.Module):
+class MultiHeadedAttention(nn.Module):(将embedding按照维度切分后可以并行计算,从而实现更高的计算效率,同时也许能避免某种程度的过拟合)
     def __init__(self, h, d_model, dropout=0.1):
         "Take in model size and number of heads."
         super(MultiHeadedAttention, self).__init__()
