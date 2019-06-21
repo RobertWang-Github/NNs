@@ -113,6 +113,71 @@ MultiHeadedAttention:传入参数(query,key,value,mask=None)
 
 
 
+Model:(x)用来表示结果传递
 
+	   	
+		 (x)   Encoder                                       (x)
+		  ↓                                                   ↓
+     Embedding(x) + PositionalEncoding(x)                Embedding(x) + PositionalEncoding
+		  ↓                                                   ↓
+		 (x)                                                 (x) 
+		  ↓                                                   ↓
+	    (x)	       (x)                                     (x)	     (x)
+ 	     ↓	        ↓                                       ↓             ↓
+             ↓	    LayerNorm                                   ↓          LayerNorm
+             ↓          ↓                                       ↓             ↓
+             ↓	    attention                                   ↓          attention
+             ↓          ↓                                       ↓             ↓
+             ↓	     dropout                                    ↓           dropout
+             ↓	        ↓                                       ↓             ↓
+             A    +     B   residual connect                    A     +       B
+                  ↓                                                   ↓
+                 (x)                                                  ↓
+	          ↓                                                   ↓
+	    (x)	       (x)                                            ↓
+             ↓	        ↓                                             ↓
+             ↓	    LayerNorm                                         ↓
+             ↓          ↓                                             ↓
+             ↓	   PositionwiseFeedForward                            ↓
+             ↓          ↓                                             ↓
+             ↓	     dropout                                          ↓
+             ↓	        ↓                                             ↓
+             A    +     B   residual connect                          ↓
+                  ↓                                                   ↓
+                重复N次                                                ↓
+		  ↓                                                   ↓
+	          ↓                                                  (x)    Decoder
+	       	  ↓				                      ↓
+	          ↓                                             (x)	      (x)                                    
+ 	          ↓                                              ↓	       ↓
+                  ↓                                          LayerNorm         ↓
+                  ↓                                              ↓             ↓
+             	  ↓----------------------------------------->attention         ↓                                       
+                                                                 ↓             ↓     
+	                                                      dropout          ↓
+                                                                 ↓             ↓	        
+                                                                 A      +      B   residual connect  
+                                                                        ↓
+		                                                       (x)                                    
+		                                                        ↓					   
+	                                                        (x)	      (x)
+ 	                                                         ↓	       ↓
+                                                                 ↓	    LayerNorm
+                                                                 ↓             ↓
+                                                                 ↓	    PositionwiseFeedForward
+                                                                 ↓             ↓
+                                                                 ↓	     dropout
+                                                                 ↓	       ↓
+                                                                 A      +      B   residual connect 
+                                                                        ↓
+		                                                      重复N次
+								        ↓
+		                                                      Linear
+								        ↓
+								     softmax
+								        ↓
+								       out
+		
+		
 
 
