@@ -182,7 +182,7 @@ def attention(query, key, value, mask=None, dropout=None):
     # query[i]和key[j]作内积(决定了value的行向量[j]的加权系数(key有l个,value的行向量也有l个)),作为value[j][k]的权重,再对value[j][k]的j求和,得到res[i][k](每一行为value的行(向量)加权得到). l行value对应l个key
     # 所以每行query(和key)都有一个value的行向量的加权结果.(注意此时行value都有一个key,所以本质上还是query决定的)
     # 当query,key,value都是相同的,且为句子中的embeddings时,query*key_T为任意两个pos(比如单词)的内积,这和余弦相似度反映了同一个东西,只不过没有进行规范norm,那此时query和key的范数即为强度,这种相似度就可以反映出当前位置pos和其他pos的关系,进而可以拿到一个包含关系信息的embedding.
-    # 
+    # 值得注意的是,transformer中作attention(x,m)是为了在一种语言中和另一种语言的各个词计算关系,如此最终的embedding既包含一个句子内部两两词之间的关系,也包含同一句不同语言两两词的关系.
     # 还有一种additive attention但是此处的dot product attention通过实现高度优化的矩阵乘法使得这个函数更快空间占用上更有效.
     # d_k是queries和keys的嵌入维度.设想d_k为1时,此时对于values有m种加权可能,但是都是由queries这m*1个数决定的.参数空间的自由度是比较低的
     # 当d_k很小时,additive attention和dot product attention是相似的,但是当d_k比较大时,如果不对dot product atten作scaling(/ math.sqrt(d_k)),那么additive还是更快,因为当d_k很大时,dot-products(如果不作scaling)的模就会很大,
