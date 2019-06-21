@@ -115,18 +115,18 @@ MultiHeadedAttention:传入参数(query,key,value,mask=None)
 
 Model:(x)用来表示结果传递
 
-	   	
-		 (x)   Encoder                                       (x)    Decoder
-		  ↓                                                   ↓
+	   	Encoder                                             Decoder
+		 (x)   ?*vocab                                       (x)   ?*vocab 
+		  ↓                                                   ↓    
      Embedding(x) + PositionalEncoding(x)                Embedding(x) + PositionalEncoding
-		  ↓                                                   ↓
-		 (x)                                                 (x) 
+		  ↓                                                   ↓    
+		 (x)   ?*d_model                                     (x)   ?*d_model
 		  ↓                                                   ↓
 	    (x)	       (x)                                     (x)	     (x)
  	     ↓	        ↓                                       ↓             ↓
-             ↓	    LayerNorm                                   ↓          LayerNorm
+             ↓	    LayerNorm                                   ↓          LayerNorm (对最后一维求zscore,再做一次仿射变换)
              ↓          ↓                                       ↓             ↓
-             ↓	    attention                                   ↓          attention
+             ↓	MultiHead-attention                             ↓     MultiHead-attention
              ↓          ↓                                       ↓             ↓
              ↓	     dropout                                    ↓           dropout
              ↓	        ↓                                       ↓             ↓
@@ -152,7 +152,7 @@ Model:(x)用来表示结果传递
  	          ↓                                              ↓	       ↓
                   ↓                                          LayerNorm         ↓
                   ↓                                              ↓             ↓
-             	  ↓----------------------------------------->attention         ↓                                       
+             	  ↓------------------------------------->MultiHead-attention   ↓                                       
                                                                  ↓             ↓     
 	                                                      dropout          ↓
                                                                  ↓             ↓	        
