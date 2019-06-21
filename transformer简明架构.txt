@@ -116,7 +116,7 @@ MultiHeadedAttention:传入参数(query,key,value,mask=None)
 Model:(x)用来表示结果传递
 
 	   	
-		 (x)   Encoder                                       (x)
+		 (x)   Encoder                                       (x)    Decoder
 		  ↓                                                   ↓
      Embedding(x) + PositionalEncoding(x)                Embedding(x) + PositionalEncoding
 		  ↓                                                   ↓
@@ -146,7 +146,7 @@ Model:(x)用来表示结果传递
                   ↓                                                   ↓
                 重复N次                                                ↓
 		  ↓                                                   ↓
-	          ↓                                                  (x)    Decoder
+	          ↓                                                  (x)    
 	       	  ↓				                      ↓
 	          ↓                                             (x)	      (x)                                    
  	          ↓                                              ↓	       ↓
