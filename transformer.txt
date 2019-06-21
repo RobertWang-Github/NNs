@@ -314,7 +314,7 @@ class Batch: # 便于向batch中加入mask,同时该mask是不变的
         self.src_mask = (src != pad).unsqueeze(-2) # src_mask 0(pad处),1(未pad处)序列,同时在src的倒数第二维增加一维
         if trg is not None:
             self.trg = trg[:, :-1] # 不要最后一列
-            self.trg_y = trg[:, 1:] # 不要第一列(此处应该是只要最后一列吧)
+            self.trg_y = trg[:, 1:] # 不要第一列. 将trg错开成两列. a,b,c,d -> a,b,c and b,c,d  a->b,(a,b)->c,(a,b,c)->d 实现这种预测结构
             self.trg_mask = \
                 self.make_std_mask(self.trg, pad)
             self.ntokens = (self.trg_y != pad).data.sum()
