@@ -116,7 +116,7 @@ MultiHeadedAttention:传入参数(query,key,value,mask=None)
 Model:(x)用来表示结果传递
 
 	   	Encoder                                             Decoder
-		 (x)                                                 (x)   batch_size*pos_num*vocab_size  最后一维是一个one-hot
+		 (x) src                                             (x) tgt  batch_size*pos_num*vocab_size  最后一维是一个one-hot
 		  ↓                                                   ↓    
      Embedding(x) + PositionalEncoding(x)                Embedding(x) + PositionalEncoding
 		  ↓                                                   ↓    
