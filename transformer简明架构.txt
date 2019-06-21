@@ -126,8 +126,12 @@ Model:(x)用来表示结果传递
  	     ↓	        ↓                                       ↓             ↓
              ↓	    LayerNorm                                   ↓          LayerNorm (对最后一维求zscore,再做一次仿射变换)
              ↓          ↓                                       ↓             ↓
+	     ↓         (x)                                      ↓            (x)
+	     ↓          ↓                                       ↓             ↓
              ↓	MultiHead-attention                             ↓     MultiHead-attention
              ↓          ↓                                       ↓             ↓
+	     ↓         (x)                                      ↓            (x)
+	     ↓          ↓                                       ↓             ↓
              ↓	     dropout                                    ↓           dropout
              ↓	        ↓                                       ↓             ↓
              A    +     B   residual connect                    A     +       B
@@ -138,8 +142,12 @@ Model:(x)用来表示结果传递
              ↓	        ↓                                             ↓
              ↓	    LayerNorm                                         ↓
              ↓          ↓                                             ↓
+	     (x)       (x)                                            ↓
+	     ↓          ↓                                             ↓
              ↓	   PositionwiseFeedForward                            ↓
              ↓          ↓                                             ↓
+	     (x)       (x)                                            ↓
+	     ↓          ↓                                             ↓
              ↓	     dropout                                          ↓
              ↓	        ↓                                             ↓
              A    +     B   residual connect                          ↓
@@ -151,9 +159,13 @@ Model:(x)用来表示结果传递
 	          ↓                                             (x)	      (x)                                    
  	          ↓                                              ↓	       ↓
                   ↓                                          LayerNorm         ↓
+		  ↓                                              ↓	       ↓
+		  ↓                                             (x)	       ↓
                   ↓                                              ↓             ↓
              	  ↓------------------------------------->MultiHead-attention   ↓                                       
-                                                                 ↓             ↓     
+                                                                 ↓             ↓
+								 (x)	       ↓
+								 ↓             ↓
 	                                                      dropout          ↓
                                                                  ↓             ↓	        
                                                                  A      +      B   residual connect  
